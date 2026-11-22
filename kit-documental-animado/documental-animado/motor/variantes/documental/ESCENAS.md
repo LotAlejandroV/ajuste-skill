@@ -1,5 +1,12 @@
 # Escenas del motor documental (referencia)
 
+El lienzo es vertical (1080×1920, 9:16). Coloca texto y datos esenciales dentro de
+el rectángulo x=60–940, y=220–1520. El editor y el render usan las mismas escenas. Las fotos,
+mapas y fondos pueden llegar al borde. Las escenas editoriales apilan las
+comparaciones, flujos y tarjetas de foto para reservar espacio a los subtítulos.
+Las animaciones heredadas conservan sus coordenadas de origen y se encuadran
+sin deformación dentro de la composición vertical.
+
 En `guion.json` cada línea es una frase; `"escena"` lleva uno de estos objetos (los campos de cada tipo).
 Lo que dice «frase/phrase» aquí = una línea de `guion.json`. `step` = en qué línea de la escena aparece (0 = la primera).
 Las escenas `motion` traen animaciones hechas (algunas con textos por defecto genéricos): da SIEMPRE sus textos.
@@ -24,7 +31,7 @@ TIPOS DE ESCENA
 - photo:    { "type":"photo", "src":"fotos/x.jpg", "style":"full|framed|archive", "move":"in|out|left|right|up|down|none",
               "focus":[0.5,0.3], "amount":0.12, "filter":"bw|sepia|warm|cold|archive", "place":"LUGAR · AÑO",
               "name":"Nombre", "role":"Cofundador", "label":"texto a mano (framed)", "credit":"opcional (si no, sale de fotos/creditos.json)" }
-              (retrato vertical + "name" = foto a la izquierda y nombre grande a la derecha; fotos pequeñas = estilo archivo)
+              (las fotos verticales ocupan el cuadro por defecto; las horizontales salen en tarjeta, con el nombre debajo si se indica "name")
 - compare:  { "type":"compare", "title":"...", "left":{"label":"CPM","value":10,"prefix":"$","decimals":0,"sub":"lo que paga el anunciante"},
               "right":{"label":"RPM","value":4,"prefix":"$","sub":"lo que ganas tú","step":1}, "highlight":"right", "vs":"vs", "note":"opcional" }
 - list:     items pueden llevar "icon":"check" o "icon":"x" (✓ / ✕)
@@ -40,7 +47,7 @@ TRANSICIONES (en la escena que entra): "transition":"fade|dip|liquid|shapes|slid
   Por defecto: fade entre escenas y dip (fundido a negro) al empezar cada bloque. Tema: "film":true (grano, parpadeo, polvo),
   "drift":0.035 (acercamiento lento), "letterbox":true (franjas de cine).
 FOTOS: van en <proyecto>/fotos/. Solo fotos con licencia libre (Wikimedia Commons, dominio público) o propias; anota autor y licencia en fotos/creditos.json
-  ({"fotos/x.jpg": {"credit": "Autor · CC BY-SA 4.0"}}): el crédito sale chico abajo a la derecha.
+  ({"fotos/x.jpg": {"credit": "Autor · CC BY-SA 4.0"}}): el crédito sale abajo a la derecha, dentro de la zona segura.
 MOTOR v2.0 · ESTILO C (por defecto; "engine":"v1" reproduce el estilo anterior)
 - Tema: guion.json → "tema": "editorial" (azul, por defecto) o "club" (negro/dorado). "surfaces":["dark","light","blue","clay"] limita las superficies;
   cada escena puede pedir "surface":"light|blue|dark|clay" (clay = acento terracota/dorado). Nunca dos superficies iguales seguidas.

@@ -120,7 +120,7 @@ def servidor(P):
     return s, s.server_address[1]
 
 
-JS_GRAB = """async ([t, q]) => { const c = window.__cv || (window.__cv = mkCanvas(1080, 1920)), x = c.getContext('2d');
+JS_GRAB = """async ([t, q]) => { const c = window.__cv || (window.__cv = mkCanvas(FRAME_W, FRAME_H)), x = c.getContext('2d');
   await preRender(t); render(x, t); const b = await c.convertToBlob({ type: 'image/jpeg', quality: q });
   return await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result.split(',')[1]); fr.readAsDataURL(b); }); }"""
 
@@ -173,11 +173,14 @@ def hilera(N, ts, ruta, esc=.35, cols=3):
 
 JS_TEXTOS = """(ts) => { const pr = [CanvasRenderingContext2D.prototype, OffscreenCanvasRenderingContext2D.prototype], orig = pr.map(p => p.fillText), out = []; let cur = null;
   pr.forEach((p, i) => p.fillText = function (txt, x0, y0, mw) { const t = String(txt);
-    if (this.globalAlpha > .3 && t.trim() && this.canvas.width >= 1000) { const m = this.measureText(t), tr = this.getTransform();
-      const q = [[x0 - m.actualBoundingBoxLeft, y0 - m.actualBoundingBoxAscent], [x0 + m.actualBoundingBoxRight, y0 + m.actualBoundingBoxDescent]].map(([a, c]) => [tr.a * a + tr.c * c + tr.e, tr.b * a + tr.d * c + tr.f]);
-      cur.push({ t, x1: Math.min(q[0][0], q[1][0]), y1: Math.min(q[0][1], q[1][1]), x2: Math.max(q[0][0], q[1][0]), y2: Math.max(q[0][1], q[1][1]) }); }
+    if (this.globalAlpha > .3 && t.trim() && this.canvas.width === FRAME_W && this.canvas.height === FRAME_H) { const m = this.measureText(t), tr = this.getTransform();
+      const scale = mw > 0 && m.width > mw ? mw / m.width : 1;
+      const xs = [x0 - m.actualBoundingBoxLeft * scale, x0 + m.actualBoundingBoxRight * scale];
+      const ys = [y0 - m.actualBoundingBoxAscent, y0 + m.actualBoundingBoxDescent];
+      const q = xs.flatMap(a => ys.map(c => [tr.a * a + tr.c * c + tr.e, tr.b * a + tr.d * c + tr.f]));
+      cur.push({ t, x1: Math.min(...q.map(p => p[0])), y1: Math.min(...q.map(p => p[1])), x2: Math.max(...q.map(p => p[0])), y2: Math.max(...q.map(p => p[1])) }); }
     return orig[i].call(this, txt, x0, y0, mw); });
-  const c = mkCanvas(1080, 1920), x = c.getContext('2d');
+  const c = mkCanvas(FRAME_W, FRAME_H), x = c.getContext('2d');
   try { for (const t of ts) { cur = []; render(x, t); out.push([t, cur]); } } finally { pr.forEach((p, i) => p.fillText = orig[i]); }
   return out; }"""
 
@@ -244,10 +247,13 @@ def main():
                 for e in N.escenas(): print(f"{e['t']:6.2f} s  {e['tipo']:<9} {e['transicion']:<6} {e['superficie'] or '':<6} «{e['texto']}»")
             else:
                 t0, t1 = float(a[2]), float(a[3]); sal = Path(a[4]).resolve() if len(a) > 4 and not a[4].startswith("--") else rev / "demo.mp4"
+                if t1 - t0 < 1: raise SystemExit("El tramo de la demo debe durar al menos 1 s")
                 fd = 30; crudo = rev / "demo-crudo.mp4"; p = ffmpeg_jpg(crudo, fd)
                 for k in range(int(round((t1 - t0) * fd))): p.stdin.write(N.grab(t0 + k / fd))
-                p.stdin.close(); p.wait(); T = t1 - t0; X = .5
-                fc = f"[0]split[a][b];[b]trim=0:{X},setpts=PTS-STARTPTS[ini];[a]trim={X},setpts=PTS-STARTPTS[resto];[resto][ini]xfade=transition=fade:duration={X}:offset={T - 2 * X:.3f},format=yuv420p[v]"
+                p.stdin.close()
+                if p.wait(): raise SystemExit("ffmpeg falló al codificar la demo")
+                T = t1 - t0; X = .5
+                fc = f"[0]split[a][b];[b]trim=0:{X},setpts=PTS-STARTPTS,fps={fd}[ini];[a]trim={X},setpts=PTS-STARTPTS,fps={fd}[resto];[resto][ini]xfade=transition=fade:duration={X}:offset={T - 2 * X:.3f},format=yuv420p[v]"
                 subprocess.run([FF, "-v", "error", "-y", "-i", str(crudo), "-filter_complex", fc, "-map", "[v]", "-an", "-c:v", "libx264", "-crf", "20", "-preset", "medium", "-movflags", "+faststart", str(sal)], check=True)
                 crudo.unlink(missing_ok=True); print(sal)
         finally:

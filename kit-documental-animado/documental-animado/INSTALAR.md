@@ -1,6 +1,6 @@
 # Instalar «documental-animado» (Mac y Windows)
 
-El video se dibuja en tu computadora: un motor HTML/JS corre dentro de un Chromium sin ventana (lo instala Playwright) y ffmpeg une
+El video vertical de 1080×1920 se dibuja en tu computadora: un motor HTML/JS corre dentro de un Chromium sin ventana (lo instala Playwright) y ffmpeg une
 los cuadros. Lo único de pago es la voz (ElevenLabs). Whisper (verifica la voz) corre local y gratis: la primera vez baja su modelo
 (~1.6 GB) y después funciona sin internet. Mapas, librerías y fuentes vienen en el kit: para dibujar no hace falta internet.
 

@@ -6,6 +6,7 @@
 <title>Motor de Video</title>
 <script src="vendor/d3.min.js"></script>
 <script src="vendor/topojson-client.min.js"></script>
+<script src="vendor/mp4-muxer.js"></script>
 <script src="lib/motion.js"></script><!-- resortes de forma cerrada (Motion Reel Kit) -->
 <script src="lib/ae.js"></script><!-- kit tipo After Effects (port de herramientas/motion_ae.py) -->
 <script src="lib/v2.js"></script><!-- v2.0 · Estilo C · Animado élite: tema editorial, escenas, transiciones, tipografía cinética -->
@@ -30,7 +31,7 @@ header .sp{flex:1}
 .ver{color:var(--muted);font-size:11px}
 .app{display:grid;grid-template-columns:minmax(0,1fr) 400px;height:calc(100% - 50px)}
 .left{display:flex;flex-direction:column;min-width:0;padding:12px;gap:10px;overflow:auto}
-.stage{position:relative;width:100%;max-height:58vh;aspect-ratio:16/9;margin:0 auto;background:#000;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.stage{position:relative;width:min(100%,32.625vh);aspect-ratio:9/16;margin:0 auto;background:#000;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
 .stage canvas{width:100%;height:100%;display:block}
 .stagewrap{display:flex;justify-content:center}
 .transport{display:flex;align-items:center;gap:10px}
@@ -83,7 +84,7 @@ header .sp{flex:1}
 </header>
 <div class="app">
   <div class="left">
-    <div class="stagewrap"><div class="stage"><canvas id="cv" width="1920" height="1080"></canvas></div></div>
+    <div class="stagewrap"><div class="stage"><canvas id="cv" width="1080" height="1920"></canvas></div></div>
     <div class="transport">
       <button id="bPlay" class="primary">▶ Play</button>
       <span class="time" id="tNow">0:00.0 / 0:00.0</span>
@@ -107,7 +108,7 @@ header .sp{flex:1}
       </div>
       <div class="card">
         <h3>Exportar MP4</h3>
-        <div class="row"><select id="sRange"></select><select id="sRes"><option value="1080">1080p</option><option value="720">720p</option></select><select id="sFps"><option value="60">60 fps</option><option value="30">30 fps</option></select><button id="bExport" class="primary">Exportar</button><button id="bCancel" disabled>Cancelar</button></div>
+        <div class="row"><select id="sRange"></select><select id="sRes"><option value="1080">1080 × 1920</option><option value="720">720 × 1280</option></select><select id="sFps"><option value="60">60 fps</option><option value="30">30 fps</option></select><button id="bExport" class="primary">Exportar</button><button id="bCancel" disabled>Cancelar</button></div>
         <div class="bar"><i id="pBar"></i></div>
         <div class="hint" id="expInfo">Se renderiza más rápido que tiempo real (WebCodecs).</div>
       </div>
@@ -130,7 +131,24 @@ header .sp{flex:1}
 /* ================================================================
    MOTOR DE VIDEO — escenas animadas en canvas + narración + MP4
    ================================================================ */
-const W = 1920, H = 1080, FPS = 30, SAFE_R = 230, SAFE_T = 210; // zona libre para el logo (arriba a la derecha)
+const FRAME_W = 1080, FRAME_H = 1920, FPS = 30;
+const SAFE = { left: 60, right: 940, top: 220, bottom: 1520 };
+const SAFE_X = (SAFE.left + SAFE.right) / 2, SAFE_W = SAFE.right - SAFE.left;
+const LEGACY_W = 1920, LEGACY_H = 1080, SAFE_R = 230, SAFE_T = 210;
+let W = FRAME_W, H = FRAME_H;
+
+// Las animaciones heredadas conservan su geometría. Se encuadran sin deformación
+// sobre el fondo vertical, mientras que las escenas editoriales usan el lienzo nativo.
+function drawLegacy(x, draw) {
+  if (W === LEGACY_W) return draw();
+  const scale = (SAFE_W - 40) / LEGACY_W;
+  x.save();
+  x.translate(SAFE_X - LEGACY_W * scale / 2, 790 - LEGACY_H * scale / 2);
+  x.scale(scale, scale);
+  x.beginPath(); x.rect(0, 0, LEGACY_W, LEGACY_H); x.clip();
+  W = LEGACY_W; H = LEGACY_H;
+  try { draw(); } finally { W = FRAME_W; H = FRAME_H; x.restore(); }
+}
 const DEFAULT_THEME = {
   bg:'#0b1626', bg2:'#16294a', ink:'#f2ead8', muted:'#8fa3bf', accent:'#e0b04f', accent2:'#d9674a',
   sea:'#0d1d33', land:'#29496f', landStroke:'#4f75a8', paper:'#efe6d2', paperInk:'#2a2118',
@@ -968,7 +986,7 @@ SCENES.motion = function (c) { const m = MOTION[c.S.anim]; if (m) { const z = c.
 /* ================= MONTAJE RÁPIDO (intro de alta retención) =================
    Una escena "montage" contiene tomas cortas ("shots") con tiempos en segundos desde el inicio de su frase.
    Cada toma entra con un látigo (whip) de resorte snappy y desenfoque direccional; cortes secos entre tomas. */
-const mbuf = mkCanvas(W, H).getContext('2d');
+const mbuf = mkCanvas(LEGACY_W, LEGACY_H).getContext('2d');
 function shotIndex(shots, T) { let k = 0; for (let i = 0; i < shots.length; i++) if (T >= shots[i].at) k = i; return k; }
 SCENES.montage = function (c) {
   const { ctx: x, S } = c, shots = S.shots || []; if (!shots.length) return;
@@ -1271,10 +1289,14 @@ function placeTag(x, text, lt) {
 }
 function credit(x, text, a) {
   if (!text || a <= 0) return;
-  x.save(); { const k = x.canvas.width / W; x.setTransform(k, 0, 0, k, 0, 0); }  // fuera de la cámara: siempre dentro del cuadro
+  x.save();
+  const legacy = W === LEGACY_W;
+  if (!legacy) { const k = x.canvas.width / FRAME_W; x.setTransform(k, 0, 0, k, 0, 0); }
+  const right = legacy ? LEGACY_W - 36 : SAFE.right - 12;
+  const bottom = legacy ? LEGACY_H - 24 : SAFE.bottom - 12;
   x.globalAlpha = .72 * a; font(x, F('body', 400, 16)); x.textAlign = 'right'; x.textBaseline = 'alphabetic'; x.shadowColor = 'rgba(0,0,0,.9)'; x.shadowBlur = 6; x.fillStyle = '#fff';
-  text = 'Foto: ' + text; for (let fs = 16; fs > 10 && x.measureText(text).width > W - 460; fs--) font(x, F('body', 400, fs));
-  x.fillText(text, W - 64, H - (TH.letterbox ? 150 : 34)); x.restore();
+  text = 'Foto: ' + text; for (let fs = 16; fs > 10 && x.measureText(text).width > SAFE_W; fs--) font(x, F('body', 400, fs));
+  x.fillText(text, right, bottom, SAFE_W); x.restore();
 }
 
 /* ---------- mapas (d3-geo + world-atlas) ---------- */
@@ -1345,7 +1367,7 @@ const NO_DRIFT = new Set(['map', 'photo', 'image', 'people']);
 const CAM_SKIP = new Set(['montage', 'screen']), CAM_ZOOM_ONLY = new Set(['photo', 'image', 'motion', 'map']);
 const camCache = new Map(), tboxCache = new Map(); let camOff = false;
 const MEAS = mkCanvas(W, H).getContext('2d');
-// rectángulo que ocupa TODA la información de un dibujo (textos, fotos, tarjetas, paneles, círculos), en coordenadas 1920×1080
+// rectángulo que ocupa TODA la información de un dibujo (textos, fotos, tarjetas, paneles, círculos), en coordenadas del lienzo
 // sin cámara. Se ignoran los fondos a sangre (≥ 85 % del cuadro), que sí pueden recortarse, y los créditos de foto.
 function textBounds(draw) {
   const C2 = CanvasRenderingContext2D.prototype, O2 = typeof OffscreenCanvasRenderingContext2D !== 'undefined' ? OffscreenCanvasRenderingContext2D.prototype : null, protos = [C2, O2].filter(Boolean);
@@ -1389,7 +1411,7 @@ function camBeats(j, si) {
   const r = { t: out, z: [[0, 1], ...out.map((t, k) => [t, Z[k % 6]])], x: [[0, 0], ...out.map((t, k) => [t, X[k % 6]])], y: [[0, 0], ...out.map((t, k) => [t, Y[k % 6]])] };
   camCache.set(key, r); return r;
 }
-// Dibuja una escena completa (fondo + foto de fondo + contenido) en el contexto x (coordenadas 1920×1080)
+// Dibuja una escena completa (fondo + foto de fondo + contenido) en el contexto x (coordenadas del lienzo)
 function drawScene(x, j, t) {
   if (TH.engine === 'v2') return V2.drawScene(x, j, t);
   const si = sceneInfo(j), S = si.S, fn = SCENES[S.type];
@@ -1405,7 +1427,7 @@ function drawScene(x, j, t) {
       const zs = safeZoom(tb, z, px, py); if (zs < z) { z = Math.max(1, zs); if (safeZoom(tb, z, px, py) < z) { px = 0; py = 0; z = Math.max(1, Math.min(z, safeZoom(tb, z, 0, 0))); } }  // el texto nunca sale del cuadro
       x.translate(W / 2 + px, H / 2 + py); x.scale(z, z); x.translate(-W / 2, -H / 2); }
     else if (TH.drift && !NO_DRIFT.has(S.type)) { const z = 1 + TH.drift * easeIO((lt + .5) / (si.dur + 1)); x.translate(W / 2, H / 2); x.scale(z, z); x.translate(-W / 2, -H / 2); }
-    x.save(); fn({ ctx: x, S, lt, dur: si.dur, step, stepStarts: si.stepStarts, lead: starts[j] - si.s0 }); x.restore();
+    drawLegacy(x, () => fn({ ctx: x, S, lt, dur: si.dur, step, stepStarts: si.stepStarts, lead: starts[j] - si.s0 }));
   }
   x.restore();
   if (S.bg) credit(x, S.bgCredit || creditOf(S.bg), prog(lt, .4, .8));
@@ -1443,21 +1465,17 @@ function render(x, t, opt = {}) {
   x.restore(); x.globalAlpha = 1; x.filter = 'none';
   if (TH.engine === 'v2') V2.overlay(x, t, opt);
   else { drawGrain(x, frame); if (TH.film) filmFx(x, frame); drawLogo(x, t); }
-  if (TH.letterbox) { const bh = (H - W / 2.39) / 2; x.fillStyle = '#000'; x.fillRect(0, 0, W, bh); x.fillRect(0, H - bh, W, bh); }
+  if (TH.letterbox) { const bh = 100; x.fillStyle = '#000'; x.fillRect(0, 0, W, bh); x.fillRect(0, H - bh, W, bh); }
   if ((TH.subtitles || (opt.caption && TH.engine !== 'v2')) && !inOutro) caption(x, P[i], opt.caption && !TH.subtitles);
   const T = totalDur(), fin = TH.kitRules !== false ? 1 : cl(t / .6), fout = TH.engine === 'v2' ? 1 : cl((T - t) / 1);  // v2: sin outro ni fundido; corta con la última palabra  // kit: el fotograma 0 nunca está vacío
   if (fin < 1 || fout < 1) { x.globalAlpha = 1 - Math.min(fin, fout); x.fillStyle = '#000'; x.fillRect(0, 0, W, H); }
   x.globalAlpha = 1;
 }
-// OUTRO / pantalla final: dos cajas vacías para los videos de la pantalla final de YouTube, logo y CTA de suscripción
+// Cierre opcional para proyectos del editor.
 function outroTo(b, lt) { b.setTransform(1, 0, 0, 1, 0, 0); b.globalAlpha = 1; b.filter = 'none'; b.letterSpacing = '0px'; drawOutro(b, lt); return b.canvas; }
 function drawOutro(x, lt) {
-  // logo + «Suscríbete» al centro; dos cajas 16:9 a los lados para los elementos de video de la pantalla final de YouTube
   const O = project.outro || {}; drawBg(x);
-  const bw = O.boxW || 680, bh = Math.round(bw * 9 / 16), by = H / 2 - bh / 2 - 10, xs = [56, W - 56 - bw];
-  xs.forEach((bx, i) => { const a = prog(lt, .2 + i * .2, .7); x.save(); x.globalAlpha = a; rrect(x, bx, by + 30 * (1 - a), bw, bh, 18); x.fillStyle = 'rgba(0,0,0,.38)'; x.fill();
-    x.lineWidth = 3; x.strokeStyle = hexA(TH.accent, .85); trimStroke(x, 2 * (bw + bh), easeIO((lt - .2 - i * .2) / 1.4)); x.restore(); });
-  const cx = W / 2, cy = H / 2 - 50, R = 170, im = imgCache(TH.logo), la = prog(lt, .4, .8), sc = pop(lt, .4, .7);
+  const cx = SAFE_X, cy = 790, R = 170, im = imgCache(TH.logo), la = prog(lt, .4, .8), sc = pop(lt, .4, .7);
   x.save(); x.globalAlpha = la; x.beginPath(); x.arc(cx, cy, R, 0, 7); x.fillStyle = 'rgba(0,0,0,.35)'; x.fill(); x.lineWidth = 4; x.strokeStyle = TH.accent; trimStroke(x, 2 * Math.PI * R, easeIO((lt - .4) / 1.2)); x.restore();
   if (im) scaleAt(x, cx, cy, sc, () => { const k = 250 / Math.max(im.width, im.height); x.globalAlpha = la; x.drawImage(im, cx - im.width * k / 2, cy - im.height * k / 2, im.width * k, im.height * k); });
   const ba = prog(lt, 1, .6), pw = 300, ph = 76, py = cy + R + 34; x.save(); x.globalAlpha = ba; rrect(x, cx - pw / 2, py + 20 * (1 - ba), pw, ph, 38); x.fillStyle = '#ffffff'; x.fill();
@@ -1528,14 +1546,14 @@ function drawLogo(x, t) {
   // se oculta mientras hay un logo grande en pantalla (escena con "logo")
   const j = ownerOf(phraseAt(t)), big = Math.max(P[j] && P[j].scene && P[j].scene.logo ? cl((t - sceneInfo(j).s0) / .5) : 0, outroDur() ? cl((t - voiceEnd() + .5) / .5) : 0);
   const a = cl((t - .8) / .8) * cl((totalDur() - t - .6) / .6) * (1 - big); if (a <= 0) return;
-  const s = TH.logoSize, k = s / Math.max(im.width, im.height), w = im.width * k, h = im.height * k, top = TH.letterbox ? 150 : 46;
-  x.save(); x.globalAlpha = a * TH.logoOpacity; x.shadowColor = 'rgba(0,0,0,.7)'; x.shadowBlur = 16; x.drawImage(im, W - 52 - w, top, w, h); x.restore();
+  const s = TH.logoSize, k = s / Math.max(im.width, im.height), w = im.width * k, h = im.height * k, top = SAFE.top + 20;
+  x.save(); x.globalAlpha = a * TH.logoOpacity; x.shadowColor = 'rgba(0,0,0,.7)'; x.shadowBlur = 16; x.drawImage(im, SAFE.right - 20 - w, top, w, h); x.restore();
 }
 function caption(x, ph, withId) {
-  x.save(); font(x, F('body', 600, 34)); const L = wrap(x, (withId ? ph.id + '  ' : '') + ph.text, 1500).slice(0, 3);
+  x.save(); font(x, F('body', 600, 34)); const L = wrap(x, (withId ? ph.id + '  ' : '') + ph.text, SAFE_W - 80).slice(0, 3);
   const bh = L.length * 46 + 26, bw = Math.max(...L.map(l => x.measureText(l).width)) + 50;
-  rrect(x, W / 2 - bw / 2, H - 70 - bh, bw, bh, 10); x.fillStyle = 'rgba(0,0,0,.62)'; x.fill();
-  x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'top'; L.forEach((l, k) => x.fillText(l, W / 2, H - 70 - bh + 14 + k * 46)); x.restore();
+  rrect(x, SAFE_X - bw / 2, SAFE.bottom - 30 - bh, bw, bh, 10); x.fillStyle = 'rgba(0,0,0,.62)'; x.fill();
+  x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'top'; L.forEach((l, k) => x.fillText(l, SAFE_X, SAFE.bottom - 30 - bh + 14 + k * 46, SAFE_W - 80)); x.restore();
 }
 
 /* ================= REVISOR DE ESCENAS ================= */
@@ -1730,7 +1748,7 @@ async function ensureAssets() {
   await Promise.all([TH.fontTitle, TH.fontBody, TH.fontSerif, 'Inter', 'Instrument Serif'].flatMap(f => [`900 60px "${f}"`, `700 60px "${f}"`, `600 60px "${f}"`, `500 60px "${f}"`, `italic 500 60px "${f}"`, `italic 600 60px "${f}"`].map(s => document.fonts.load(s).catch(() => {}))));
   if (P.some(p => p.scene && p.scene.type === 'map')) await loadWorld();
   const srcs = new Set(TH.logo ? [TH.logo] : []);
-  const grab = S => { if (!S) return; ['src', 'bg', 'photo', 'backdrop'].forEach(k => S[k] && srcs.add(S[k])); (S.items || []).forEach(it => it && it.src && srcs.add(it.src)); (S.photos || []).forEach(f => srcs.add(f)); (S.shots || []).forEach(sh => { grab(sh); grab(sh.scene); }); };
+  const grab = S => { if (!S) return; ['src', 'bg', 'photo', 'backdrop'].forEach(k => S[k] && srcs.add(S[k])); (S.items || []).forEach(it => { if (typeof it === 'string' && S.type === 'gallery') srcs.add(it); else if (it && it.src) srcs.add(it.src); }); (S.photos || []).forEach(f => srcs.add(f)); (S.shots || []).forEach(sh => { grab(sh); grab(sh.scene); }); };
   P.forEach(p => grab(p.scene));
   await Promise.all([...srcs].map(loadImage));
 }
@@ -1738,7 +1756,7 @@ async function ensureAssets() {
 const yieldNow = () => new Promise(r => { const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(0); });
 async function pickVideo(w, h, fps) {
   for (const codec of ['avc1.640028', 'avc1.4d0028', 'avc1.42002a', 'avc1.640033']) {
-    const cfg = { codec, width: w, height: h, bitrate: (w > 1300 ? (TH.engine === 'v2' ? 14e6 : 8e6) : 5e6) * (fps > 30 ? 1.5 : 1), framerate: fps };
+    const cfg = { codec, width: w, height: h, bitrate: (h >= FRAME_H ? (TH.engine === 'v2' ? 14e6 : 8e6) : 5e6) * (fps > 30 ? 1.5 : 1), framerate: fps };
     try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch (e) {}
   }
   return null;
@@ -1755,7 +1773,7 @@ async function exportMP4() {
   if (!('VideoEncoder' in window)) { toast('Tu navegador no soporta WebCodecs. Usa Chrome o Edge actualizado.', 5000); return; }
   pause();
   // window.__range = [t0, t1] permite exportar por segmentos
-  const range = window.__range || blockRange($('sRange').value), [t0, t1] = range, res = +$('sRes').value, ow = res === 720 ? 1280 : 1920, oh = res === 720 ? 720 : 1080;
+  const range = window.__range || blockRange($('sRange').value), [t0, t1] = range, res = +$('sRes').value, ow = res, oh = res * FRAME_H / FRAME_W;
   const job = exporting = { cancel: false }; $('bCancel').disabled = false; $('bExport').disabled = true;
   const info = m => $('expInfo').textContent = m;
   try {
@@ -1764,7 +1782,7 @@ async function exportMP4() {
     const acfg = audio ? await pickAudio() : null;
     // exportación por trozos al disco (servidor.py): la memoria no crece con la duración ni con los fps
     const slug0 = (project.title || 'video').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), part0 = window.__rangeName || ($('sRange').value === 'all' ? 'completo' : 'bloque-' + (+$('sRange').value + 1));
-    const nombreS = window.__exportName || `${slug0}-${part0}-${oh}p${fps > 30 ? fps : ''}.mp4`; let streaming = false;
+    const nombreS = window.__exportName || `${slug0}-${part0}-${ow}x${oh}-${fps}fps.mp4`; let streaming = false;
     try { streaming = (await fetch('trozo?inicio=1&pos=0&nombre=' + encodeURIComponent(nombreS), { method: 'PUT', body: new Uint8Array(0) })).ok; } catch (e) {}
     const pend = new Set(); let streamErr = null;
     const send = (data, position) => { const pr = fetch('trozo?pos=' + position + '&nombre=' + encodeURIComponent(nombreS), { method: 'PUT', body: data.slice() }).then(r => { if (!r.ok) streamErr = new Error('No se pudo escribir un trozo'); }).catch(e => streamErr = e).finally(() => pend.delete(pr)); pend.add(pr); };
@@ -1800,15 +1818,13 @@ async function exportMP4() {
     if (streaming) { while (pend.size) await Promise.all([...pend]); if (streamErr) throw streamErr; await fetch('cerrar?nombre=' + encodeURIComponent(nombreS), { method: 'PUT' });
       $('pBar').style.width = '100%'; info(`Listo: exports/${nombreS} · ${((performance.now() - tStart) / 1000).toFixed(0)} s`); window.__guardado = 'exports/' + nombreS; return; }
     const blob = new Blob([target.buffer], { type: 'video/mp4' });
-    const slug = (project.title || 'video').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    const part = $('sRange').value === 'all' ? 'completo' : 'bloque-' + (+$('sRange').value + 1);
-    const nombre = `${slug}-${part}-${oh}p${fps > 30 ? fps : ''}.mp4`, a = { download: nombre };
+    const nombre = nombreS;
     // primero se guarda directo en exports/ (servidor.py); si no hay servidor, se descarga
     let guardado = null; try { const r = await fetch('guardar?nombre=' + encodeURIComponent(nombre), { method: 'PUT', body: blob }); if (r.ok) guardado = await r.text(); } catch (e) {}
     if (!guardado) { const l = document.createElement('a'); l.href = URL.createObjectURL(blob); l.download = nombre; document.body.appendChild(l); l.click(); l.remove(); }
     window.__guardado = guardado;
-    $('pBar').style.width = '100%'; info(`Listo: ${guardado || a.download} · ${(blob.size / 1048576).toFixed(1)} MB · ${((performance.now() - tStart) / 1000).toFixed(0)} s` + (audio && !acfg ? ' (sin audio: el navegador no codifica AAC/Opus)' : ''));
-    window.__lastExport = { name: a.download, size: blob.size, frames: N, audio: acfg ? acfg.mux : null, codec: vcfg.codec };
+    $('pBar').style.width = '100%'; info(`Listo: ${guardado || nombre} · ${(blob.size / 1048576).toFixed(1)} MB · ${((performance.now() - tStart) / 1000).toFixed(0)} s` + (audio && !acfg ? ' (sin audio: el navegador no codifica AAC/Opus)' : ''));
+    window.__lastExport = { name: nombre, size: blob.size, frames: N, audio: acfg ? acfg.mux : null, codec: vcfg.codec };
   } catch (e) { info(e.message === 'cancelado' ? 'Exportación cancelada.' : 'Error: ' + e.message); console.error(e); $('pBar').style.width = '0'; }
   finally { exporting = null; $('bCancel').disabled = true; $('bExport').disabled = false; }
 }
@@ -1821,7 +1837,7 @@ async function idbGet(k) { try { const d = await idb(); return await new Promise
 async function idbDel(k) { try { const d = await idb(); d.transaction('kv', 'readwrite').objectStore('kv').delete(k); } catch (e) {} }
 
 /* ================= ESPECIFICACIÓN PARA CLAUDE ================= */
-const SPEC = `FORMATO DE GUION PARA EL MOTOR DE VIDEO (JSON)
+const SPEC = `FORMATO DE GUION PARA EL MOTOR DE VIDEO VERTICAL 9:16 (JSON)
 {
   "title": "Título del video", "subtitle": "opcional",
   "theme": { "bg":"#0b1626","bg2":"#16294a","ink":"#f2ead8","muted":"#8fa3bf","accent":"#e0b04f","accent2":"#d9674a",
@@ -1832,6 +1848,7 @@ const SPEC = `FORMATO DE GUION PARA EL MOTOR DE VIDEO (JSON)
   ] } ]
 }
 REGLAS
+- Lienzo 1080 × 1920. Mantén el texto y los datos esenciales dentro de x=60–940 y de y=220–1520.
 - "text" debe ser idéntico a lo que dice la voz, en el mismo orden (el motor sincroniza frase a frase con las pausas del audio).
 - Una frase = una oración. Cambia de escena cada 1-3 frases. Las frases sin "scene" siguen la escena anterior.
 - "step": en elementos (puntos, rutas, items, eventos, marcas) indica en qué frase de la escena aparecen (0 = la primera, 1 = la siguiente frase sin escena, etc.).
@@ -1854,7 +1871,7 @@ TIPOS DE ESCENA
 - photo:    { "type":"photo", "src":"fotos/x.jpg", "style":"full|framed|archive", "move":"in|out|left|right|up|down|none",
               "focus":[0.5,0.3], "amount":0.12, "filter":"bw|sepia|warm|cold|archive", "place":"SAN MATEO, CALIFORNIA · 2005",
               "name":"Jawed Karim", "role":"Cofundador", "label":"texto a mano (framed)", "credit":"opcional (si no, sale de fotos/creditos.json)" }
-              (retrato vertical + "name" = foto a la izquierda y nombre grande a la derecha; fotos pequeñas = estilo archivo)
+              (las fotos verticales ocupan el cuadro por defecto; las horizontales salen en tarjeta, con el nombre debajo si se indica "name")
 - compare:  { "type":"compare", "title":"...", "left":{"label":"CPM","value":10,"prefix":"$","decimals":0,"sub":"lo que paga el anunciante"},
               "right":{"label":"RPM","value":4,"prefix":"$","sub":"lo que ganas tú","step":1}, "highlight":"right", "vs":"vs", "note":"opcional" }
 - list:     items pueden llevar "icon":"check" o "icon":"x" (✓ / ✕)
@@ -1871,7 +1888,7 @@ MEZCLA DE AUDIO: "mix": { "music":"musica/fondo.m4a", "musicVolume":0.16, "duck"
 - screen:   { "type":"screen", "frames":"pantalla/canal/f%04d.jpg", "count":510, "fps":30, "url":"youtube.com/@tu_cuenta", "title":"opcional",
               "callouts":[{"at":1.0,"dur":2.5,"x":400,"y":356,"r":60,"text":"Suscríbete"}], "name":"rótulo", "role":"subrótulo" }
               (graba la página con:  node grabar_pantalla.js <url> pantalla/nombre 17 3600 )
-OUTRO: "outro": { "dur":10, "button":"Suscríbete", "handle":"@tu_cuenta" }  → 10 s finales con música, dos cajas para videos y logo.
+OUTRO: "outro": { "dur":10, "button":"Suscríbete", "handle":"@tu_cuenta" }  → cierre vertical opcional con logo y llamada a suscribirse.
 TRANSICIONES (en la escena que entra): "transition":"fade|dip|liquid|shapes|slide|zoom|blur|wipe|flash|leak|cut"
   Por defecto: fade entre escenas y dip (fundido a negro) al empezar cada bloque. Tema: "film":true (grano, parpadeo, polvo),
   "drift":0.035 (acercamiento lento), "letterbox":true (franjas de cine).

@@ -1,9 +1,9 @@
 ---
 name: documental-animado
-description: Hace videos HORIZONTALES de YouTube (1920×1080) 100 % animados por código en el formato «Documental animado» — mapas con vuelo de cámara, fechas que ruedan, cifras con odómetro, barras, listas, flujos y fotos 2.5D — con la voz del usuario (ElevenLabs) sincronizada palabra por palabra y tipografía cinética. Usar cuando el usuario pida «documental animado», «video de historia/geografía con mapas», «video horizontal animado con mapas y cifras», «estilo documental».
+description: Hace videos verticales 9:16 para Reels, Shorts y TikTok (1080×1920) 100 % animados por código en el formato «Documental animado» — mapas con vuelo de cámara, fechas que ruedan, cifras con odómetro, barras, listas, flujos y fotos 2.5D — con la voz del usuario (ElevenLabs) sincronizada palabra por palabra y tipografía cinética. Usar cuando el usuario pida «documental animado», «video de historia/geografía con mapas», «reel o short animado con mapas y cifras», «estilo documental».
 ---
 
-# Documental animado · video horizontal animado por código
+# Documental animado · video vertical animado por código
 
 Haces el video COMPLETO y lo entregas: guion → voz → animación → render → QA → video final abierto. No entregues planes ni partes.
 Un video a la vez, con el tema y la voz del usuario. Nada de producción masiva ni de automatizar canales: el usuario crea su propio contenido.
@@ -66,7 +66,7 @@ PY <motor> <proyecto> demo 0 8 [salida.mp4]   → clip mudo de 8 s con loop (par
 ```
 
 ## 2 · El estilo (especificación medida)
-**Formato:** 1920×1080 **horizontal**, 60 fps (30 con `--fps 30`), H.264. Voz desde el cuadro 0. Duración típica 45–90 s; una prueba corta
+**Formato:** 1080×1920 **vertical (9:16)**, 60 fps (30 con `--fps 30`), H.264. Voz desde el cuadro 0. Duración típica 45–90 s; una prueba corta
 (≤ 20 s) = 35–55 palabras y 4–6 escenas. Termina ≤ 0.4 s después de la última palabra: sin outro, sin fundido a negro.
 **Look «editorial»** (por defecto, `guion.json → "tema": "editorial"`): limpio y premium; acento `#2F6BFF` sobre claro y `#5C96FF` sobre oscuro.
 Tema `"club"` opcional: negro / carbón / dorado `#E2B34D`.
@@ -134,7 +134,7 @@ UNA toma corrida: el texto de todas las líneas, en orden, es exactamente lo que
 ## 6 · QA y revisión con tus ojos
 El QA del motor (`qa.json`) exige: voz en el cuadro 0 · pausas ≤ 0.8 s · cierre ≤ 0.6 s tras el final COMPLETO de la última palabra ·
 ninguna palabra cortada (`palabras_completas`) · pasada literal del `voz.wav` final contra el guion (`literal_final`; lee `aceptadas`) ·
-zona segura · −14 LUFS / ≤ −1 dBTP · vetos de texto. Si algo falla: arréglalo, no lo ignores. Si decides aceptar una alerta (p. ej. Whisper
+zona segura (x=60–940, y=220–1520) · −14 LUFS / ≤ −1 dBTP · vetos de texto. Si algo falla: arréglalo, no lo ignores. Si decides aceptar una alerta (p. ej. Whisper
 oye mal una palabra que sí está bien dicha), mídela, escríbelo y díselo al usuario.
 
 **Revisión visual obligatoria** (hoja de cuadros completa + `prueba` en cada momento clave). Pregúntate en cada cuadro:
